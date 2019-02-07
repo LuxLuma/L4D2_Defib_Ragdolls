@@ -10,7 +10,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.0"
+#define PLUGIN_VERSION "1.0.5"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -25,8 +25,11 @@ static bool bSpawnedGlowModels = false;
 static bool bShowGlow[MAXPLAYERS+1];
 static int iGlowModelRef[2048+1];
 
+static Handle hCvar_Human_VPhysics_Mode;
+static bool bHuman_VPhysics_Mode = true;
+
 //survivor models seem to have 5x the mass of a common infected physics bug if pushed too often per tick and have high force, higher tickrates have better results
-static const char sFatOrBugModels[12][] =
+static const char sFatModels[10][] =
 {
 	"models/survivors/survivor_gambler.mdl",
 	"models/survivors/survivor_producer.mdl",
@@ -37,13 +40,16 @@ static const char sFatOrBugModels[12][] =
 	"models/survivors/survivor_teenangst_light.mdl",
 	"models/survivors/survivor_biker.mdl",
 	"models/survivors/survivor_biker_light.mdl",
-	"models/survivors/survivor_manager.mdl",
+	"models/survivors/survivor_manager.mdl"
+};
+
+static const char sBugModels[2][] =
+{
 	"models/npcs/rescue_pilot_01.mdl",
 	"models/infected/common_female01.mdl"
 };
 
 static const char sPlaceHolder[] = "models/infected/common_male01.mdl";
-
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
@@ -67,12 +73,28 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	CreateConVar("defib_Ragdolls_version", PLUGIN_VERSION, "", FCVAR_NOTIFY|FCVAR_DONTRECORD);
+	hCvar_Human_VPhysics_Mode = CreateConVar("dr_survivor_ragdoll_mode", "1", "1 = [User common infected as vphysics] 0 = [Use survivor vphysics NOTE: survivor models have alot of mass, expensive to simulate and have no interpolation]", FCVAR_NOTIFY);
+	HookConVarChange(hCvar_Human_VPhysics_Mode, eCvarChanged);
+	
+	AutoExecConfig(true, "Defib_ragdolls");
+	CvarChanged();
+	
 	CreateTimer(0.1, GlowThink, _, TIMER_REPEAT);
 }
 
 public void OnMapStart()
 {
 	PrecacheModel(sPlaceHolder, true);
+}
+
+public void eCvarChanged(Handle convar, const char[] oldValue, const char[] newValue)
+{
+	CvarChanged();
+}
+
+void CvarChanged()
+{
+	bHuman_VPhysics_Mode = GetConVarInt(hCvar_Human_VPhysics_Mode) > 0;
 }
 
 public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOverlayModel)
@@ -151,7 +173,6 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 	fRagdollVelocity[iEntity][1] = fClientVelocity[iClient][1] / (iTickRate / 30); 
 	fRagdollVelocity[iEntity][2] = fClientVelocity[iClient][2] / (iTickRate / 30);
 	
-	ScaleVector(fRagdollVelocity[iEntity], 5.0);
 	iRagdollPushesLeft[iEntity] = iTickRate;
 }
 
@@ -182,9 +203,17 @@ public Action ApplyRagdollForce(int victim, int &attacker, int &inflictor, float
 
 bool IsFatOrBugModel(const char[] sModel)
 {
-	for(int i = 0; i < 12; i++)
+	if(bHuman_VPhysics_Mode)
 	{
-		if(StrEqual(sModel, sFatOrBugModels[i], false))
+		for(int i = 0; i < 10; i++)
+		{
+			if(StrEqual(sModel, sFatModels[i], false))
+				return true;
+		}
+	}
+	for(int i = 0; i < 2; i++)
+	{
+		if(StrEqual(sModel, sBugModels[i], false))
 			return true;
 	}
 	return false;
