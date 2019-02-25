@@ -10,7 +10,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.0.5"
+#define PLUGIN_VERSION "1.0.9"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -26,7 +26,7 @@ static bool bShowGlow[MAXPLAYERS+1];
 static int iGlowModelRef[2048+1];
 
 static Handle hCvar_Human_VPhysics_Mode;
-static bool bHuman_VPhysics_Mode = true;
+static int iHuman_VPhysics_Mode = true;
 
 //survivor models seem to have 5x the mass of a common infected physics bug if pushed too often per tick and have high force, higher tickrates have better results
 static const char sFatModels[10][] =
@@ -73,7 +73,7 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	CreateConVar("defib_Ragdolls_version", PLUGIN_VERSION, "", FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	hCvar_Human_VPhysics_Mode = CreateConVar("dr_survivor_ragdoll_mode", "1", "1 = [User common infected as vphysics] 0 = [Use survivor vphysics NOTE: survivor models have alot of mass, expensive to simulate and have no interpolation]", FCVAR_NOTIFY);
+	hCvar_Human_VPhysics_Mode = CreateConVar("dr_survivor_ragdoll_mode", "1", "2 = [User common infected as vphysics for consistency] 1 = [Only use common infected vphysics for bugged models and survivor model(they heavy)] 0 = [Use model common infected vphysics when available except for bugged models]", FCVAR_NOTIFY, true, 0.0, true, 2.0);
 	HookConVarChange(hCvar_Human_VPhysics_Mode, eCvarChanged);
 	
 	AutoExecConfig(true, "Defib_ragdolls");
@@ -94,7 +94,7 @@ public void eCvarChanged(Handle convar, const char[] oldValue, const char[] newV
 
 void CvarChanged()
 {
-	bHuman_VPhysics_Mode = GetConVarInt(hCvar_Human_VPhysics_Mode) > 0;
+	iHuman_VPhysics_Mode = GetConVarInt(hCvar_Human_VPhysics_Mode);
 }
 
 public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOverlayModel)
@@ -119,22 +119,33 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 		return;
 	}
 	
-	if(IsFatOrBugModel(sModel))
+	switch(iHuman_VPhysics_Mode)
 	{
-		int iOverlay = LMC_SetEntityOverlayModel(iEntity, sModel);
-		if(iOverlay < 1)
+		case 0:
 		{
-			AcceptEntityInput(iEntity, "Kill");
-			return;
+			if(IsBugModel(sModel))
+				DispatchKeyValue(iEntity, "model", sPlaceHolder);
+			else
+				DispatchKeyValue(iEntity, "model", sModel);
 		}
-		DispatchKeyValue(iEntity, "model", sPlaceHolder);
-		SetEntProp(iEntity, Prop_Send, "m_nMinGPULevel", 1);
-		SetEntProp(iEntity, Prop_Send, "m_nMaxGPULevel", 1);
-		SetEntityRenderMode(iEntity, RENDER_NONE);
+		case 1:
+		{
+			if(IsBugModel(sModel) || IsFat(sModel))
+				DispatchKeyValue(iEntity, "model", sPlaceHolder);
+			else
+				DispatchKeyValue(iEntity, "model", sModel);
+		}
+		case 2:
+		{
+			DispatchKeyValue(iEntity, "model", sPlaceHolder);
+		}
+		default:
+		{
+			DispatchKeyValue(iEntity, "model", sPlaceHolder);
+		}
 	}
-	else
-		DispatchKeyValue(iEntity, "model", sModel);
-	
+		
+	LMC_SetEntityOverlayModel(iEntity, sModel);
 	
 	DispatchKeyValue(iEntity, "spawnflags", "4");
 	
@@ -148,8 +159,6 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 	
 	DispatchSpawn(iEntity);
 	ActivateEntity(iEntity);
-	
-	AcceptEntityInput(iEntity, "TurnOn");
 	
 	GetEntPropVector(iDeathModel, Prop_Data, "m_angAbsRotation", fVec);
 	FixAngles(sModel, fVec[0], bIncap[iClient]);
@@ -183,7 +192,6 @@ public void VPhysicsPush(int iEntity)
 	{
 		SDKUnhook(iEntity, SDKHook_OnTakeDamage, ApplyRagdollForce);
 		SDKUnhook(iEntity, SDKHook_VPhysicsUpdate, VPhysicsPush);
-		SetEntityRenderMode(iEntity, RENDER_NORMAL);
 		return;
 	}
 	
@@ -201,21 +209,19 @@ public Action ApplyRagdollForce(int victim, int &attacker, int &inflictor, float
 	return Plugin_Changed;
 }
 
-bool IsFatOrBugModel(const char[] sModel)
+bool IsBugModel(const char[] sModel)
 {
-	if(bHuman_VPhysics_Mode)
-	{
-		for(int i = 0; i < 10; i++)
-		{
-			if(StrEqual(sModel, sFatModels[i], false))
-				return true;
-		}
-	}
 	for(int i = 0; i < 2; i++)
-	{
 		if(StrEqual(sModel, sBugModels[i], false))
 			return true;
-	}
+	return false;
+}
+
+bool IsFat(const char[] sModel)
+{
+	for(int i = 0; i < 10; i++)
+		if(StrEqual(sModel, sFatModels[i], false))
+			return true;
 	return false;
 }
 
