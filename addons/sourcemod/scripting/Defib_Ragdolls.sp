@@ -73,7 +73,7 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	CreateConVar("defib_Ragdolls_version", PLUGIN_VERSION, "", FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	hCvar_Human_VPhysics_Mode = CreateConVar("dr_survivor_ragdoll_mode", "1", "2 = [User common infected as vphysics for consistency] 1 = [Only use common infected vphysics for bugged models and survivor model(they heavy)] 0 = [Use model common infected vphysics when available except for bugged models]", FCVAR_NOTIFY, true, 0.0, true, 2.0);
+	hCvar_Human_VPhysics_Mode = CreateConVar("dr_survivor_ragdoll_mode", "1", "2 = [User common infected as vphysics for consistency] 1 = [Only use common infected vphysics for bugged models and survivor model(they heavy)] 0 = [Use model vphysics when available except for bugged models]", FCVAR_NOTIFY, true, 0.0, true, 2.0);
 	HookConVarChange(hCvar_Human_VPhysics_Mode, eCvarChanged);
 	
 	AutoExecConfig(true, "Defib_ragdolls");
