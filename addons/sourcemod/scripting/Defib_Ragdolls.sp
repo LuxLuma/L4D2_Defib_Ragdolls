@@ -10,7 +10,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.0.9"
+#define PLUGIN_VERSION "1.1.0"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -303,6 +303,12 @@ public void eOnTakeDamagePost(int victim, int attacker, int inflictor, float dam
 		bIncap[victim] = true;
 	else
 		bIncap[victim] = false;
+	
+	if(damagetype & DMG_FALL)
+	{
+		GetEntPropVector(victim, Prop_Data, "m_vecAbsVelocity", fClientVelocity[victim]);
+		return;
+	}
 		
 	fClientVelocity[victim][0] = damageForce[0];
 	fClientVelocity[victim][1] = damageForce[1];
