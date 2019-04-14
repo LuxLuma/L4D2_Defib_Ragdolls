@@ -10,7 +10,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -183,8 +183,38 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 	fRagdollVelocity[iEntity][2] = fClientVelocity[iClient][2] / (iTickRate / 30);
 	
 	iRagdollPushesLeft[iEntity] = iTickRate;
+	
+	DataPack hDataPack = CreateDataPack();
+	hDataPack.WriteCell(GetClientUserId(iClient));
+	hDataPack.WriteCell(EntIndexToEntRef(iEntity));
+	RequestFrame(AttachClient, hDataPack);
 }
 
+
+public void AttachClient(DataPack hDataPack)
+{
+	hDataPack.Reset();
+	int iClient = GetClientOfUserId(hDataPack.ReadCell());
+	int iRagdoll = EntRefToEntIndex(hDataPack.ReadCell());
+	delete hDataPack;
+	
+	if(iClient < 1 || !IsClientInGame(iClient))
+		return;
+	
+	if(!IsValidEntRef(iRagdoll))
+		return;
+	
+	SetVariantString("!activator");
+	AcceptEntityInput(iClient, "SetParent", iRagdoll);
+	TeleportEntity(iClient, view_as<float>({0.0, 0.0, 0.0}), NULL_VECTOR, NULL_VECTOR);
+}
+
+//Fix what i break with parenting clients as respawning restores the parented entity
+//Seems origin is dispatched after the engine dispatches spawn to the entity.
+public Action PreSpawn(int iClient)
+{
+	AcceptEntityInput(iClient, "ClearParent");
+}
 
 public void VPhysicsPush(int iEntity)
 {
@@ -209,27 +239,12 @@ public Action ApplyRagdollForce(int victim, int &attacker, int &inflictor, float
 	return Plugin_Changed;
 }
 
-bool IsBugModel(const char[] sModel)
+public void RagdollPhysicsUpdatePost(int iEntity)
 {
-	for(int i = 0; i < 2; i++)
-		if(StrEqual(sModel, sBugModels[i], false))
-			return true;
-	return false;
-}
-
-bool IsFat(const char[] sModel)
-{
-	for(int i = 0; i < 10; i++)
-		if(StrEqual(sModel, sFatModels[i], false))
-			return true;
-	return false;
-}
-
-public Action ShouldTransmitGlow(int iEntity, int iClient)
-{
-	if(bShowGlow[iClient])
-		return Plugin_Continue;
-	return Plugin_Handled;
+	if(!IsValidEntRef(iRagdollRef[iEntity]))
+		return;
+	
+	CheckDeathModelTeleport(iEntity, iRagdollRef[iEntity]);
 }
 
 public Action CheckDist(Handle hTimer, int iEntRef)
@@ -244,14 +259,6 @@ public Action CheckDist(Handle hTimer, int iEntRef)
 
 	CheckDeathModelTeleport(iDeathModelRef[iEntity], iEntity);
 	return Plugin_Continue;
-}
-
-public void RagdollPhysicsUpdatePost(int iEntity)
-{
-	if(!IsValidEntRef(iRagdollRef[iEntity]))
-		return;
-	
-	CheckDeathModelTeleport(iEntity, iRagdollRef[iEntity]);
 }
 
 void CheckDeathModelTeleport(int iRagdoll, int iDeathModel)
@@ -289,14 +296,6 @@ public void OnEntityDestroyed(int iEntity)
 	}
 }
 
-public void OnClientPutInServer(int iClient)
-{
-	if(IsFakeClient(iClient))
-		return;
-	
-	SDKHook(iClient, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
-}
-
 public void eOnTakeDamagePost(int victim, int attacker, int inflictor, float damage, int damagetype, int weapon, const float damageForce[3], const float damagePosition[3])
 {
 	if(GetEntProp(victim, Prop_Send, "m_isIncapacitated", 1) && !GetEntProp(victim, Prop_Send, "m_isHangingFromLedge", 1))
@@ -314,6 +313,7 @@ public void eOnTakeDamagePost(int victim, int attacker, int inflictor, float dam
 	fClientVelocity[victim][1] = damageForce[1];
 	fClientVelocity[victim][2] = damageForce[2];
 }
+
 
 void FixAngles(const char[] sModel, float &fAng, bool IncapAngle)
 {
@@ -354,6 +354,29 @@ static void TickleRagdoll(int iRagdoll)
 	AcceptEntityInput(iHurtPointRef, "TurnOn");
 	AcceptEntityInput(iHurtPointRef, "Hurt");
 	AcceptEntityInput(iHurtPointRef, "TurnOff");
+}
+
+bool IsBugModel(const char[] sModel)
+{
+	for(int i = 0; i < 2; i++)
+		if(StrEqual(sModel, sBugModels[i], false))
+			return true;
+	return false;
+}
+
+bool IsFat(const char[] sModel)
+{
+	for(int i = 0; i < 10; i++)
+		if(StrEqual(sModel, sFatModels[i], false))
+			return true;
+	return false;
+}
+
+public Action ShouldTransmitGlow(int iEntity, int iClient)
+{
+	if(bShowGlow[iClient])
+		return Plugin_Continue;
+	return Plugin_Handled;
 }
 
 public Action GlowThink(Handle hTimer, any Cake)
@@ -430,8 +453,6 @@ bool SetUpGlowModel(int iEntity)
 	SetEntProp(iEnt, Prop_Send, "m_iGlowType", 3);
 	SetEntProp(iEnt, Prop_Send, "m_glowColorOverride", 180);
 	SetEntProp(iEnt, Prop_Send, "m_nGlowRange", 2147483646);
-	SetEntProp(iEnt, Prop_Send, "m_nMinGPULevel", 1);
-	SetEntProp(iEnt, Prop_Send, "m_nMaxGPULevel", 1);
 	SetEntityRenderMode(iEnt, RENDER_NONE);
 	SDKHook(iEnt, SDKHook_SetTransmit, ShouldTransmitGlow);
 	return true;
@@ -443,4 +464,14 @@ public void OnEntityCreated(int iEntity, const char[] sClassname)
 	 	return;
 	 
 	SDKHook(iEntity, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
+	SDKHook(iEntity, SDKHook_Spawn, PreSpawn);
+}
+
+public void OnClientPutInServer(int iClient)
+{
+	if(IsFakeClient(iClient))
+		return;
+	
+	SDKHook(iClient, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
+	SDKHook(iClient, SDKHook_Spawn, PreSpawn);
 }
