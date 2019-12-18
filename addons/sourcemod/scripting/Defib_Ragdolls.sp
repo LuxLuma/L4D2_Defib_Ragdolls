@@ -10,7 +10,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.1"
+#define PLUGIN_VERSION "1.2.2"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -198,7 +198,7 @@ public void AttachClient(DataPack hDataPack)
 	int iRagdoll = EntRefToEntIndex(hDataPack.ReadCell());
 	delete hDataPack;
 	
-	if(iClient < 1 || !IsClientInGame(iClient))
+	if(iClient < 1 || !IsClientInGame(iClient) || IsPlayerAlive(iClient))//forgot the alive check :P
 		return;
 	
 	if(!IsValidEntRef(iRagdoll))
