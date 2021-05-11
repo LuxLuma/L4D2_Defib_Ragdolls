@@ -4,13 +4,16 @@
 #include <sdktools>
 #include <sdkhooks>
 
+#include <lux_library>
+
 #define REQUIRE_PLUGIN
 #include <LMCL4D2CDeathHandler>
 #include <LMCCore>
 
+
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.2"
+#define PLUGIN_VERSION "1.2.4"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -27,6 +30,10 @@ static int iGlowModelRef[2048+1];
 
 static Handle hCvar_Human_VPhysics_Mode;
 static int iHuman_VPhysics_Mode = true;
+
+static bool bOverrideBoogie = false;
+static int iZapIndex;
+static int bIgnoreZap = false;
 
 //survivor models seem to have 5x the mass of a common infected physics bug if pushed too often per tick and have high force, higher tickrates have better results
 static const char sFatModels[10][] =
@@ -80,11 +87,14 @@ public void OnPluginStart()
 	CvarChanged();
 	
 	CreateTimer(0.1, GlowThink, _, TIMER_REPEAT);
+	
+	AddTempEntHook("EffectDispatch", TE_Zap);
 }
 
 public void OnMapStart()
 {
 	PrecacheModel(sPlaceHolder, true);
+	iZapIndex = Precache_Particle_System("item_defibrillator_body");
 }
 
 public void eCvarChanged(Handle convar, const char[] oldValue, const char[] newValue)
@@ -356,6 +366,28 @@ static void TickleRagdoll(int iRagdoll)
 	AcceptEntityInput(iHurtPointRef, "TurnOff");
 }
 
+void SetupShock(int iRagdoll)
+{
+	int iOverlay = LMC_GetEntityOverlayModel(iRagdoll);
+	if(iOverlay != -1)
+	{
+		float vecPos[3];
+		GetAbsOrigin(iRagdoll, vecPos);
+		TE_SetupParticle_ControlPoints(iZapIndex, iOverlay, vecPos);
+		TE_SendToAllInRange(vecPos, RangeType_Visibility);
+	}
+	
+	/*
+	StartRagdollBoogie
+    Begins ragdoll boogie effect for 5 seconds.
+    Bug.png Bug: This input is actually supposed to use a parameter for how long the ragdoll should boogie, but it uses the wrong field type in the data description.
+    Code Fix: In CRagdollProp's data description, find DEFINE_INPUTFUNC( FIELD_VOID, "StartRagdollBoogie", InputStartRadgollBoogie ) and replace FIELD_VOID with FIELD_FLOAT.
+    */
+	bOverrideBoogie = true;
+	AcceptEntityInput(iRagdoll, "StartRagdollBoogie");
+	bOverrideBoogie = false;
+}
+
 bool IsBugModel(const char[] sModel)
 {
 	for(int i = 0; i < 2; i++)
@@ -460,12 +492,51 @@ bool SetUpGlowModel(int iEntity)
 
 public void OnEntityCreated(int iEntity, const char[] sClassname)
 {
+	if(bOverrideBoogie && StrEqual(sClassname, "env_ragdoll_boogie"))
+	{
+		SDKHook(iEntity, SDKHook_SpawnPost, BoogieSpawnPost);
+		return;
+	}
+	
 	if(sClassname[0] != 's' || !StrEqual(sClassname, "survivor_bot"))
 	 	return;
 	 
 	SDKHook(iEntity, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
 	SDKHook(iEntity, SDKHook_Spawn, PreSpawn);
 }
+
+public void BoogieSpawnPost(int iEntity)
+{
+	SetEntPropFloat(iEntity, Prop_Data, "m_flBoogieLength", 0.4);
+}
+
+public Action TE_Zap(const char[] te_name, const int[] Players, int numClients, float delay)
+{
+	if(bIgnoreZap)
+		return Plugin_Continue;
+	
+	static int iEffectIndex = INVALID_STRING_INDEX;
+	if(iEffectIndex < 0)
+	{
+		iEffectIndex = __FindStringIndex2(FindStringTable("EffectDispatch"), "ParticleEffect");
+		if(iEffectIndex == INVALID_STRING_INDEX)
+			SetFailState("Unable to find EffectDispatch/ParticleEffect indexes");
+	}
+	
+	if(TE_ReadNum("m_iEffectName") != iEffectIndex)
+		return Plugin_Continue;
+	
+	if(TE_ReadNum("m_nHitBox") != iZapIndex)
+		return Plugin_Continue;
+	
+	int iDeathModel = TE_ReadNum("entindex");
+	if(IsValidEntRef(iDeathModelRef[iDeathModel]))
+	{
+		SetupShock(EntRefToEntIndex(iDeathModelRef[iDeathModel]));
+	}
+	return Plugin_Continue;
+}
+
 
 public void OnClientPutInServer(int iClient)
 {
@@ -474,4 +545,29 @@ public void OnClientPutInServer(int iClient)
 	
 	SDKHook(iClient, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
 	SDKHook(iClient, SDKHook_Spawn, PreSpawn);
+}
+
+//Credit smlib https://github.com/bcserv/smlib
+/**
+ * Rewrite of FindStringIndex, which failed to work correctly in previous tests.
+ * Searches for the index of a given string in a stringtable. 
+ *
+ * @param tableidx		Stringtable index.
+ * @param str			String to find.
+ * @return			The string index or INVALID_STRING_INDEX on error.
+ **/
+static stock int __FindStringIndex2(int tableidx, const char[] str)
+{
+	static char buf[1024];
+
+	int numStrings = GetStringTableNumStrings(tableidx);
+	for (int i=0; i < numStrings; i++) {
+		ReadStringTable(tableidx, i, buf, sizeof(buf));
+		
+		if (StrEqual(buf, str)) {
+			return i;
+		}
+	}
+	
+	return INVALID_STRING_INDEX;
 }
