@@ -13,7 +13,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.4"
+#define PLUGIN_VERSION "1.2.5"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -95,6 +95,7 @@ public void OnMapStart()
 {
 	PrecacheModel(sPlaceHolder, true);
 	iZapIndex = Precache_Particle_System("item_defibrillator_body");
+	Precache_Boogie();
 }
 
 public void eCvarChanged(Handle convar, const char[] oldValue, const char[] newValue)
@@ -510,6 +511,15 @@ public void BoogieSpawnPost(int iEntity)
 	SetEntPropFloat(iEntity, Prop_Data, "m_flBoogieLength", 0.4);
 }
 
+void Precache_Boogie()
+{
+	int iEnt = CreateEntityByName("env_ragdoll_boogie");
+	if(iEnt == -1)
+		return;
+	DispatchSpawn(iEnt);
+	RemoveEntity(iEnt);
+}
+
 public Action TE_Zap(const char[] te_name, const int[] Players, int numClients, float delay)
 {
 	if(bIgnoreZap)
@@ -532,7 +542,9 @@ public Action TE_Zap(const char[] te_name, const int[] Players, int numClients, 
 	int iDeathModel = TE_ReadNum("entindex");
 	if(IsValidEntRef(iDeathModelRef[iDeathModel]))
 	{
+		bIgnoreZap = true;
 		SetupShock(EntRefToEntIndex(iDeathModelRef[iDeathModel]));
+		bIgnoreZap = false;
 	}
 	return Plugin_Continue;
 }
