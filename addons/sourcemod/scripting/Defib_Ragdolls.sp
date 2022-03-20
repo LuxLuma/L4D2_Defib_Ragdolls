@@ -664,10 +664,6 @@ bool SetupBloodDecal_FromTrace(Handle hTR=INVALID_HANDLE)
 			TE_SetupWorldDecal(vecEnd, g_iDecals[GetRandomInt(0, g_DecalArraySize)]);
 		}
 	}
-	else
-	{
-		TE_SetupEntityDecal(vecEnd, vecStart, iTarget, iHitbox, g_iDecals[GetRandomInt(0, g_DecalArraySize)]);
-	}
 	return true;
 }
 
@@ -683,11 +679,7 @@ public bool TraceFilter_Decal(int entity, int contentsmask, int ignore)
 {
 	if(entity == 0)
 		return true;
-	
-	if(IsValidEntRef(iDeathModelRef[entity] || IsValidEntRef(iRagdollRef[entity])))
-		return false;
-	
-	return true;
+	return false;
 }
 
 stock void OriginMove(float fStartOrigin[3], float fStartAngles[3], float EndOrigin[3],  float fDistance)
