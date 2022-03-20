@@ -13,7 +13,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.5"
+#define PLUGIN_VERSION "1.2.6"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -58,6 +58,27 @@ static const char sBugModels[2][] =
 
 static const char sPlaceHolder[] = "models/infected/common_male01.mdl";
 
+
+#define MAXBLOOD_RANGE 140.0
+#define DECAL_AMOUNT_WITCH 40
+#define DECALS_SEND_PERTICK 8
+
+char g_rngSpray[][] =
+{
+	"decals/blood1_subrect",
+	"decals/blood2_subrect",
+	"decals/blood3_subrect",
+	"decals/blood4_subrect",
+	"decals/blood5_subrect",
+	"decals/blood6_subrect",
+};
+
+int g_iDecals[sizeof(g_rngSpray)];
+int g_DecalArraySize = sizeof(g_rngSpray);
+
+
+ArrayList g_BloodQueue;
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	if(GetEngineVersion() != Engine_Left4Dead2 )
@@ -89,6 +110,11 @@ public void OnPluginStart()
 	CreateTimer(0.1, GlowThink, _, TIMER_REPEAT);
 	
 	AddTempEntHook("EffectDispatch", TE_Zap);
+	
+	HookUserMessage(GetUserMessageId("WitchBloodSplatter"), WitchBloodSplatter, true);
+	
+	--g_DecalArraySize;
+	g_BloodQueue = new ArrayList(3);
 }
 
 public void OnMapStart()
@@ -96,6 +122,11 @@ public void OnMapStart()
 	PrecacheModel(sPlaceHolder, true);
 	iZapIndex = Precache_Particle_System("item_defibrillator_body");
 	Precache_Boogie();
+	
+	for(int i; i < sizeof(g_rngSpray); ++i)
+		g_iDecals[i] = PrecacheDecal(g_rngSpray[i]);
+		
+	g_BloodQueue.Clear();
 }
 
 public void eCvarChanged(Handle convar, const char[] oldValue, const char[] newValue)
@@ -557,6 +588,116 @@ public void OnClientPutInServer(int iClient)
 	
 	SDKHook(iClient, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
 	SDKHook(iClient, SDKHook_Spawn, PreSpawn);
+}
+
+public Action WitchBloodSplatter(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, bool reliable, bool init)
+{
+	float vecPos[3];
+	msg.ReadVecCoord(vecPos);
+	
+	//PrintToChatAll("WitchHit_Detect, bytesleft[%i]", msg.BytesLeft);
+	
+	for(int i; i < DECAL_AMOUNT_WITCH; ++i)
+	{
+		g_BloodQueue.PushArray(vecPos);
+	}
+	
+	return Plugin_Handled;
+}
+
+public void OnGameFrame()
+{
+	int len = g_BloodQueue.Length;
+	if(len < 1)
+		return;
+	
+	float vecPos[3];
+	float vecAng[3];
+	float vecPosEnd[3];
+	int limit = DECALS_SEND_PERTICK;
+	
+	for(int i = len - 1; i > -1; --i)
+	{
+		if(--limit <= 0)
+			return;
+		
+		g_BloodQueue.GetArray(i, vecPos);
+		g_BloodQueue.Erase(i);
+		
+		__RNGAngles(vecAng);
+		OriginMove(vecPos, vecAng, vecPosEnd, MAXBLOOD_RANGE);
+		TR_TraceRayFilter(vecPos, vecPosEnd, CONTENTS_IGNORE_NODRAW_OPAQUE|CONTENTS_AUX|CONTENTS_SOLID|CONTENTS_EMPTY|CONTENTS_WINDOW, RayType_EndPoint, TraceFilter_Decal);// simple bbox tracing
+		
+		if(SetupBloodDecal_FromTrace())
+		{
+			TE_SendToAllInRange(vecPosEnd, RangeType_Visibility);
+		}
+	}
+}
+
+bool SetupBloodDecal_FromTrace(Handle hTR=INVALID_HANDLE)
+{
+	if(!TR_DidHit(hTR))
+		return false;
+	
+	int iSurf = TR_GetSurfaceFlags(hTR);
+	if((iSurf & SURF_NODECALS) || (iSurf & SURF_NODRAW) || (iSurf & SURF_SKY))
+	{
+		return false;
+	}
+	
+	float vecStart[3];
+	float vecEnd[3];
+	int iTarget = TR_GetEntityIndex(hTR);
+	int iHitbox = TR_GetHitBoxIndex(hTR);
+	TR_GetStartPosition(hTR, vecStart);
+	TR_GetEndPosition(vecEnd, hTR);
+	
+	if(iTarget == 0)
+	{
+		if(iHitbox)
+		{
+			TE_SetupEntityDecal(vecEnd, vecStart, iTarget, iHitbox, g_iDecals[GetRandomInt(0, g_DecalArraySize)]);
+		}
+		else
+		{
+			TE_SetupWorldDecal(vecEnd, g_iDecals[GetRandomInt(0, g_DecalArraySize)]);
+		}
+	}
+	else
+	{
+		TE_SetupEntityDecal(vecEnd, vecStart, iTarget, iHitbox, g_iDecals[GetRandomInt(0, g_DecalArraySize)]);
+	}
+	return true;
+}
+
+
+stock void __RNGAngles(float fRNGAngle[3])
+{
+	fRNGAngle[0] = GetRandomFloat(-360.0, 360.0);
+	fRNGAngle[1] = GetRandomFloat(-360.0, 360.0);
+	fRNGAngle[2] = GetRandomFloat(-360.0, 360.0);
+}
+
+public bool TraceFilter_Decal(int entity, int contentsmask, int ignore)
+{
+	if(entity == 0)
+		return true;
+	
+	if(IsValidEntRef(iDeathModelRef[entity] || IsValidEntRef(iRagdollRef[entity])))
+		return false;
+	
+	return true;
+}
+
+stock void OriginMove(float fStartOrigin[3], float fStartAngles[3], float EndOrigin[3],  float fDistance)
+{
+	float fDirection[3];
+	GetAngleVectors(fStartAngles, fDirection, NULL_VECTOR, NULL_VECTOR);
+
+	EndOrigin[0] = fStartOrigin[0] + fDirection[0] * fDistance;
+	EndOrigin[1] = fStartOrigin[1] + fDirection[1] * fDistance;
+	EndOrigin[2] = fStartOrigin[2] + fDirection[2] * fDistance;
 }
 
 //Credit smlib https://github.com/bcserv/smlib
