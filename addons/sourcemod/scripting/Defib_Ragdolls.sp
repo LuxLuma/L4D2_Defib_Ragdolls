@@ -13,7 +13,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.6"
+#define PLUGIN_VERSION "1.2.7"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -23,6 +23,8 @@ static float fRagdollVelocity[2048+1][3];
 static int iRagdollPushesLeft[2048+1];
 static float fClientVelocity[MAXPLAYERS+1][3];
 static bool bIncap[MAXPLAYERS+1];
+
+static int iTrackedRagdollRef[MAXPLAYERS+1];
 
 static bool bSpawnedGlowModels = false;
 static bool bShowGlow[MAXPLAYERS+1];
@@ -229,9 +231,51 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 	DataPack hDataPack = CreateDataPack();
 	hDataPack.WriteCell(GetClientUserId(iClient));
 	hDataPack.WriteCell(EntIndexToEntRef(iEntity));
+	
 	RequestFrame(AttachClient, hDataPack);
+	//SetEntPropEnt(iClient, Prop_Send, "m_hRagdoll", iEntity);
+	SetEntPropEnt(iEntity, Prop_Send, "m_hOwnerEntity", iClient);//other plugins
+	SetEntProp(iEntity, Prop_Send, "m_nForceBone", GetEntProp(iClient, Prop_Send, "m_nForceBone"));// no idea what this does valve does it
+	
+	SetEntProp(iClient, Prop_Data, "m_bForcedObserverMode", 1);//i set this for me to keep track if game does something
+	SetEntPropEnt(iClient, Prop_Send, "m_hObserverTarget", iEntity);
+	SetEntProp(iClient, Prop_Send, "m_iObserverMode", 1);
+	
+	iTrackedRagdollRef[iClient] = EntIndexToEntRef(iEntity);
+	SDKHook(iClient, SDKHook_PostThinkPost, FollowCam);
 }
 
+public void FollowCam(int iClient)
+{
+	if(!GetEntProp(iClient, Prop_Data, "m_bForcedObserverMode") || 
+		GetEntProp(iClient, Prop_Send, "m_iObserverMode") != 1 ||
+		IsPlayerAlive(iClient) || GetClientTeam(iClient) != 2)
+	{
+		SDKUnhook(iClient, SDKHook_PostThinkPost, FollowCam);
+		return;
+	}
+	
+	int iRagdoll = GetEntPropEnt(iClient, Prop_Send, "m_hObserverTarget");
+	if(iRagdoll == INVALID_ENT_REFERENCE || iRagdoll != EntRefToEntIndex(iTrackedRagdollRef[iClient]))
+	{
+		SDKUnhook(iClient, SDKHook_PostThinkPost, FollowCam);
+		return;
+	}
+	
+	float vecClientPos[3];
+	float vecRagdollPos[3];
+	float vecResult[3];
+	
+	GetAbsOrigin(iClient, vecClientPos);
+	GetAbsOrigin(iRagdoll, vecRagdollPos);
+	
+	VectorLerp(vecClientPos, vecRagdollPos, 0.05, vecResult);
+	
+	if(GetVectorDistance(vecClientPos, vecResult) > 1.0)
+	{
+		TeleportEntity(iClient, vecResult, NULL_VECTOR, NULL_VECTOR);
+	}
+}
 
 public void AttachClient(DataPack hDataPack)
 {
@@ -245,17 +289,10 @@ public void AttachClient(DataPack hDataPack)
 	
 	if(!IsValidEntRef(iRagdoll))
 		return;
-	
-	SetVariantString("!activator");
-	AcceptEntityInput(iClient, "SetParent", iRagdoll);
-	TeleportEntity(iClient, view_as<float>({0.0, 0.0, 0.0}), NULL_VECTOR, NULL_VECTOR);
-}
-
-//Fix what i break with parenting clients as respawning restores the parented entity
-//Seems origin is dispatched after the engine dispatches spawn to the entity.
-public Action PreSpawn(int iClient)
-{
-	AcceptEntityInput(iClient, "ClearParent");
+		
+	float vecRagdollPos[3];
+	GetAbsOrigin(iRagdoll, vecRagdollPos);
+	TeleportEntity(iClient, vecRagdollPos, NULL_VECTOR, NULL_VECTOR);
 }
 
 public void VPhysicsPush(int iEntity)
@@ -534,7 +571,6 @@ public void OnEntityCreated(int iEntity, const char[] sClassname)
 	 	return;
 	 
 	SDKHook(iEntity, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
-	SDKHook(iEntity, SDKHook_Spawn, PreSpawn);
 }
 
 public void BoogieSpawnPost(int iEntity)
@@ -587,7 +623,6 @@ public void OnClientPutInServer(int iClient)
 		return;
 	
 	SDKHook(iClient, SDKHook_OnTakeDamageAlivePost, eOnTakeDamagePost);
-	SDKHook(iClient, SDKHook_Spawn, PreSpawn);
 }
 
 public Action WitchBloodSplatter(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, bool reliable, bool init)
@@ -690,6 +725,15 @@ stock void OriginMove(float fStartOrigin[3], float fStartAngles[3], float EndOri
 	EndOrigin[0] = fStartOrigin[0] + fDirection[0] * fDistance;
 	EndOrigin[1] = fStartOrigin[1] + fDirection[1] * fDistance;
 	EndOrigin[2] = fStartOrigin[2] + fDirection[2] * fDistance;
+}
+
+//Thanks Deathreus
+// Figure out a middle point between source and destination in the given time
+stock void VectorLerp(const float vec[3], const float dest[3], float time, float res[3])
+{
+    res[0] = vec[0] + (dest[0] - vec[0]) * time;
+    res[1] = vec[1] + (dest[1] - vec[1]) * time;
+    res[2] = vec[2] + (dest[2] - vec[2]) * time;
 }
 
 //Credit smlib https://github.com/bcserv/smlib
