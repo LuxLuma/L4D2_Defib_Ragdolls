@@ -13,7 +13,7 @@
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.2.7"
+#define PLUGIN_VERSION "1.2.8"
 
 #define RAGDOLL_OFFSET_TOLERANCE 25.0
 
@@ -228,12 +228,7 @@ public void LMC_OnClientDeathModelCreated(int iClient, int iDeathModel, int iOve
 	
 	iRagdollPushesLeft[iEntity] = iTickRate;
 	
-	DataPack hDataPack = CreateDataPack();
-	hDataPack.WriteCell(GetClientUserId(iClient));
-	hDataPack.WriteCell(EntIndexToEntRef(iEntity));
 	
-	RequestFrame(AttachClient, hDataPack);
-	//SetEntPropEnt(iClient, Prop_Send, "m_hRagdoll", iEntity);
 	SetEntPropEnt(iEntity, Prop_Send, "m_hOwnerEntity", iClient);//other plugins
 	SetEntProp(iEntity, Prop_Send, "m_nForceBone", GetEntProp(iClient, Prop_Send, "m_nForceBone"));// no idea what this does valve does it
 	
@@ -264,35 +259,22 @@ public void FollowCam(int iClient)
 	
 	float vecClientPos[3];
 	float vecRagdollPos[3];
-	float vecResult[3];
 	
 	GetAbsOrigin(iClient, vecClientPos);
 	GetAbsOrigin(iRagdoll, vecRagdollPos);
 	
+	if(GetVectorDistance(vecClientPos, vecRagdollPos) > 250.0)
+	{
+		TeleportEntity(iClient, vecRagdollPos, NULL_VECTOR, NULL_VECTOR);
+	}
+	
+	float vecResult[3];
 	VectorLerp(vecClientPos, vecRagdollPos, 0.05, vecResult);
 	
 	if(GetVectorDistance(vecClientPos, vecResult) > 1.0)
 	{
 		TeleportEntity(iClient, vecResult, NULL_VECTOR, NULL_VECTOR);
 	}
-}
-
-public void AttachClient(DataPack hDataPack)
-{
-	hDataPack.Reset();
-	int iClient = GetClientOfUserId(hDataPack.ReadCell());
-	int iRagdoll = EntRefToEntIndex(hDataPack.ReadCell());
-	delete hDataPack;
-	
-	if(iClient < 1 || !IsClientInGame(iClient) || IsPlayerAlive(iClient))//forgot the alive check :P
-		return;
-	
-	if(!IsValidEntRef(iRagdoll))
-		return;
-		
-	float vecRagdollPos[3];
-	GetAbsOrigin(iRagdoll, vecRagdollPos);
-	TeleportEntity(iClient, vecRagdollPos, NULL_VECTOR, NULL_VECTOR);
 }
 
 public void VPhysicsPush(int iEntity)
