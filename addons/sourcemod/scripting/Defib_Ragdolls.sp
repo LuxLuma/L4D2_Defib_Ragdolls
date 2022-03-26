@@ -266,6 +266,7 @@ public void FollowCam(int iClient)
 	if(GetVectorDistance(vecClientPos, vecRagdollPos) > 250.0)
 	{
 		TeleportEntity(iClient, vecRagdollPos, NULL_VECTOR, NULL_VECTOR);
+		return;
 	}
 	
 	float vecResult[3];
